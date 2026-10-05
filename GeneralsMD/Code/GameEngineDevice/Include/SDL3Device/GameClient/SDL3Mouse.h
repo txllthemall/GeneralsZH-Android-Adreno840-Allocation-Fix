@@ -42,6 +42,7 @@
 
 // FORWARD REFERENCES
 struct AnimatedCursor;
+class Image;
 
 // SDL3Mouse ------------------------------------------------------------------
 /** Mouse interface using SDL3 APIs for Linux */
@@ -61,6 +62,7 @@ public:
 	// Mouse interface
 	virtual void setCursor(MouseCursor cursor);
 	virtual void setVisibility(Bool visible);
+	virtual void draw(void) override;
 	virtual void loseFocus();
 	virtual void regainFocus();
 
@@ -76,6 +78,11 @@ public:
 	// it to do nothing here; nothing on mobile calls addSDLEvent() on this
 	// object anymore, so there's no button/wheel state to flush either.
 	virtual void createStreamMessages() override;
+
+	// GeneralsX @feature Codex 28/08/2026 Android cannot warp its SDL system pointer, so a controller-owned cursor
+	// is rendered by the engine at this position using Generals' own mapped
+	// cursor artwork. Touch remains cursorless.
+	void setGamepadCursorPosition(Int x, Int y, Bool visible);
 
 	// GeneralsX @bugfix Android port 06/09/2026 Where the last finger touched.
 	//
@@ -154,6 +161,12 @@ private:
 	
 	// GeneralsX @bugfix BenderAI 22/02/2026 Add cursor animation tracking
 	Int m_directionFrame;         ///< current frame of directional cursor (from 0 points up)
+
+#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
+	// GeneralsX @feature Codex 28/08/2026 Native game-art controller cursor state.
+	Bool m_GamepadCursorVisible;
+	const Image *m_GamepadCursorImages[NUM_MOUSE_CURSORS];
+#endif
 };
 
 #endif // !_WIN32
