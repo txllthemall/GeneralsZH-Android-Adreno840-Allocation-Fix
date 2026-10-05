@@ -36,6 +36,7 @@
 #include "GameLogic/GameLogic.h"
 // GeneralsX @bugfix felipebraz 20/02/2026 Include Display to get internal resolution for coordinate scaling
 #include "GameClient/Display.h"
+#include "GameClient/Image.h"
 // GeneralsX @bugfix BenderAI 22/02/2026 Add SDL3_image for cursor loading
 // SDL3_image now finds system libpng via pkg-config (CMAKE_PREFIX_PATH reordered in cmake/sdl3.cmake)
 #include <SDL3_image/SDL_image.h>
@@ -141,6 +142,9 @@ SDL3Mouse::SDL3Mouse(SDL_Window* window)
 	  m_MiddleButtonDownTime(0),
 	  m_LastFrameNumber(0),  // GeneralsX @bugfix felipebraz 18/02/2026 Initialize frame tracking
 	  m_directionFrame(0)    // GeneralsX @bugfix BenderAI 22/02/2026 Initialize cursor direction frame
+#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
+	  , m_GamepadCursorVisible(false)
+#endif
 {
 	// GeneralsX @bugfix BenderAI 18/02/2026 Temporarily disable debug logging (Phase 1.8)
 	// fprintf(stderr, "DEBUG: SDL3Mouse::SDL3Mouse() created\n");
@@ -148,6 +152,9 @@ SDL3Mouse::SDL3Mouse(SDL_Window* window)
 	// Initialize event buffer with SDL_EVENT_FIRST sentinel (means "empty" slot)
 	// GeneralsX @refactor felipebraz 16/02/2026 Fighter19 pattern
 	memset(m_eventBuffer, 0, sizeof(m_eventBuffer));
+#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
+	memset(m_GamepadCursorImages, 0, sizeof(m_GamepadCursorImages));
+#endif
 
 	m_LeftButtonDownPos.x = 0;
 	m_LeftButtonDownPos.y = 0;
@@ -383,6 +390,9 @@ void SDL3Mouse::init(void)
 	memset(m_eventBuffer, 0, sizeof(m_eventBuffer));
 	m_nextFreeIndex = 0;
 	m_nextGetIndex = 0;
+#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
+	m_GamepadCursorVisible = false;
+#endif
 
 	// GeneralsX @bugfix BenderAI 18/02/2026 Temporarily disable debug logging (Phase 1.8)
 	// fprintf(stderr, "INFO: SDL3Mouse::init() complete\n");
@@ -510,6 +520,46 @@ void SDL3Mouse::setVisibility(Bool visible)
 	SDL_ShowCursor();
 }
 
+/** GeneralsX @feature Codex 28/08/2026 Draw a controller cursor using the game's mapped art. */
+void SDL3Mouse::draw(void)
+{
+#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
+	if (!m_GamepadCursorVisible || !TheDisplay) {
+		return;
+	}
+
+	MouseCursor cursor = m_currentCursor;
+	if (cursor <= NONE || cursor >= NUM_MOUSE_CURSORS) {
+		cursor = NORMAL;
+	}
+
+	const Image *image = m_GamepadCursorImages[cursor];
+	if (!image && TheMappedImageCollection && !m_cursorInfo[cursor].imageName.isEmpty()) {
+		image = TheMappedImageCollection->findImageByName(m_cursorInfo[cursor].imageName);
+		m_GamepadCursorImages[cursor] = image;
+	}
+
+	if (image) {
+		const ICoord2D &hotSpot = m_cursorInfo[cursor].hotSpotPosition;
+		const Int left = m_currMouse.pos.x - hotSpot.x;
+		const Int top = m_currMouse.pos.y - hotSpot.y;
+		TheDisplay->drawImage(image, left, top,
+			left + image->getImageWidth(), top + image->getImageHeight());
+		return;
+	}
+
+	// A malformed/custom Cursor.ini may omit Image= even though the ANI exists.
+	// Keep the controller usable in that case with a tiny engine-rendered marker.
+	const Int x = m_currMouse.pos.x;
+	const Int y = m_currMouse.pos.y;
+	TheDisplay->drawLine(x - 9, y, x + 9, y, 2.0f, 0xFFFFFFFF);
+	TheDisplay->drawLine(x, y - 9, x, y + 9, 2.0f, 0xFFFFFFFF);
+	TheDisplay->drawOpenRect(x - 3, y - 3, 7, 7, 1.0f, 0xFF000000);
+#else
+	Mouse::draw();
+#endif
+}
+
 /**
  * Handle window losing focus
  */
@@ -550,6 +600,15 @@ void SDL3Mouse::setTouchCursorPos(Int x, Int y)
  */
 void SDL3Mouse::createStreamMessages()
 {
+}
+
+// GeneralsX @feature Codex 28/08/2026 Synchronize the native controller cursor.
+void SDL3Mouse::setGamepadCursorPosition(Int x, Int y, Bool visible)
+{
+	m_currMouse.pos.x = x;
+	m_currMouse.pos.y = y;
+	m_prevMouse.pos = m_currMouse.pos;
+	m_GamepadCursorVisible = visible;
 }
 #endif
 
