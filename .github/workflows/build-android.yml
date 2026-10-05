@@ -515,6 +515,41 @@ jobs:
       # someone can still be running the build it came from, and the cleanup
       # step below keeps just the newest run per branch anyway. Released builds
       # do not rely on this copy -- their table is attached to the Release.
+      - name: Publish controls GitHub Release
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/mysorez-1.4-controls-port' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v1.4.0-controls"
+          OUT="GeneralsXZH-v1.4.0-Touch-Gamepad.apk"
+          cp "${{ steps.locate.outputs.path }}" "$OUT"
+          SHA="$(sha256sum "$OUT" | awk '{print $1}')"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping."
+            exit 0
+          fi
+          cat > /tmp/release-notes.md <<EOF
+          Based on MYSOREZ GeneralsZH-Android-Port v1.4.0.
+
+          Added from Generals-Mobile:
+          - Configurable on-screen hotkey buttons
+          - Touch controls editor
+          - Native configurable gamepad controls
+          - Right-stick mouse cursor
+          - Left-stick camera movement
+          - L1/R1 zoom
+          - A/Cross left click and B/Circle right click
+          - Remappable D-pad and auxiliary buttons
+          - Cursor speed, pan sensitivity and deadzone settings
+
+          The MYSOREZ v1.4.0 renderer, Snapdragon GSR, interface scaling,
+          online/LAN fixes and current camera fixes are preserved.
+
+          SHA-256: $SHA
+          EOF
+          gh release create "$TAG" "$OUT"             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Generals Zero Hour Android v1.4.0 + Touch & Gamepad Controls"             --notes-file /tmp/release-notes.md
+
       - name: Upload symbol table artifact
         uses: actions/upload-artifact@v7
         with:
