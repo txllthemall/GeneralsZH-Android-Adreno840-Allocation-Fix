@@ -401,7 +401,15 @@ public class GeneralsZHActivity extends SDLActivity {
             }
         }
 
+        File launchFolder = haveCustomPath ? new File(gamePath) : legacyGameDataDir();
+        TouchControlConfig.prepareForLaunch(this, launchFolder);
+        GamepadControlConfig.prepareForLaunch(this, launchFolder);
+
         super.onCreate(savedInstanceState);
+
+        // SDLActivity has created its SurfaceView/layout at this point. The
+        // overlay consumes input only inside configured hotkey rectangles.
+        HotkeyOverlayView.attach(this);
     }
 
     // GeneralsX @bugfix Android port 02/08/2026 A tester reported the camera
