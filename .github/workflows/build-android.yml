@@ -26,6 +26,10 @@ on:
   # usage for zero benefit. pull_request/workflow_dispatch (manual runs,
   # including the "publish a Release" path) are unaffected and still work
   # exactly as before.
+  push:
+    branches:
+      - mysorez-1.4-controls-port
+
   pull_request:
     branches:
       - main
