@@ -201,6 +201,8 @@ public class SetupActivity extends Activity {
         root.addView(statusText);
 
         addPlainButton(root, getString(R.string.setup_button_select_game_folder), this::onSelectGameFolder);
+        addPlainButton(root, getString(R.string.setup_button_touch_controls), this::onTouchControls);
+        addPlainButton(root, getString(R.string.setup_button_gamepad_controls), this::onGamepadControls);
         addPlainButton(root, getString(R.string.setup_button_view_logs), this::onViewLogs);
         addPlainButton(root, getString(R.string.setup_button_launch_game), this::onLaunchGame);
         addPlainButton(root, getString(R.string.setup_button_clear_game_folder), this::onClearGameFolder);
@@ -384,6 +386,7 @@ public class SetupActivity extends Activity {
                 }
                 break;
             case TAB_INTERFACE:
+                buildMobileControlsSection(page);
                 buildLanguageSection(page);
                 buildUiScaleSection(page);
                 buildInterfaceScaleSection(page);
@@ -992,6 +995,29 @@ public class SetupActivity extends Activity {
     // font point size* is a genuinely bigger asset, not just a stretched
     // rect). Removed rather than ship a slider that visibly does nothing;
     // "Menu Text Size" below is the one scaling option that actually works.
+
+    // Mobile input editors ported from Generals-Mobile onto the current
+    // MYSOREZ launcher UI. The native game reads the generated INI files on launch.
+    private void buildMobileControlsSection(LinearLayout root) {
+        LinearLayout content = UiKit.card(root);
+        UiKit.sectionHeader(content, R.drawable.ic_gzh_sliders,
+            getString(R.string.setup_card_touch_controls), false);
+        UiKit.helpText(content, getString(R.string.setup_touch_controls_help));
+        UiKit.button(content, UiKit.BTN_PRIMARY, R.drawable.ic_gzh_sliders,
+            getString(R.string.setup_button_touch_controls), this::onTouchControls);
+
+        UiKit.helpText(content, getString(R.string.setup_gamepad_controls_help));
+        UiKit.button(content, UiKit.BTN_PRIMARY, R.drawable.ic_gzh_sliders,
+            getString(R.string.setup_button_gamepad_controls), this::onGamepadControls);
+    }
+
+    private void onTouchControls() {
+        startActivity(new Intent(this, TouchControlsActivity.class));
+    }
+
+    private void onGamepadControls() {
+        startActivity(new Intent(this, GamepadControlsActivity.class));
+    }
 
     private void buildUiScaleSection(LinearLayout root) {
         LinearLayout content = UiKit.card(root);
