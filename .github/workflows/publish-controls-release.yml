@@ -1,0 +1,60 @@
+name: Publish controls release
+
+permissions:
+  contents: write
+  actions: read
+
+on:
+  push:
+    branches:
+      - mysorez-1.4-controls-port
+    paths:
+      - '.github/workflows/publish-controls-release.yml'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified APK from build run 11
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-apk
+          gh run download 37286873542 \
+            --repo "${{ github.repository }}" \
+            --name "GeneralsXZH-android-run11.apk" \
+            --dir release-apk
+          test -f release-apk/GeneralsXZH-android-run11.apk
+          cp release-apk/GeneralsXZH-android-run11.apk GeneralsXZH-v1.4.0-Touch-Gamepad.apk
+          sha256sum GeneralsXZH-v1.4.0-Touch-Gamepad.apk
+
+      - name: Publish v1.4.0-controls
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.0-controls \
+            GeneralsXZH-v1.4.0-Touch-Gamepad.apk \
+            --repo "${{ github.repository }}" \
+            --target d55972891793ca17ef9ab1b39216359a5ae44277 \
+            --title "Generals Zero Hour Android v1.4.0 + Touch & Gamepad Controls" \
+            --notes-file - <<'EOF'
+          Based on MYSOREZ GeneralsZH-Android-Port v1.4.0.
+
+          Added from Generals-Mobile:
+          - Configurable on-screen hotkey buttons
+          - Touch controls editor
+          - Configurable native gamepad controls
+          - Right-stick mouse cursor
+          - Left-stick camera movement
+          - L1/R1 zoom
+          - A/Cross left click and B/Circle right click
+          - Remappable D-pad and auxiliary buttons
+          - Cursor speed, pan sensitivity and deadzone settings
+
+          The MYSOREZ v1.4.0 renderer, Snapdragon GSR, interface scaling, online/LAN fixes and current camera fixes are preserved.
+
+          Built and verified by GitHub Actions run #11.
+          SHA-256: 4a7f0f201881d3465e6573f6a96791267a08cacf8c41a0982ce4cd62107df42a
+          EOF
