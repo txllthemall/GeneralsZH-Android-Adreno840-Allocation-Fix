@@ -21,21 +21,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-apk
-          gh run download 37286873542 \
+          gh run download 37572024203 \
             --repo "${{ github.repository }}" \
-            --name "GeneralsXZH-android-run11.apk" \
+            --name "GeneralsXZH-android-run14.apk" \
             --dir release-apk
-          test -f release-apk/GeneralsXZH-android-run11.apk
-          cp release-apk/GeneralsXZH-android-run11.apk GeneralsXZH-v1.4.0-Touch-Gamepad.apk
-          sha256sum GeneralsXZH-v1.4.0-Touch-Gamepad.apk
+          test -f release-apk/GeneralsXZH-android-run14.apk
+          cp release-apk/GeneralsXZH-android-run14.apk GeneralsXZH-v1.4.0-Touch-Gamepad-r2.apk
+          sha256sum GeneralsXZH-v1.4.0-Touch-Gamepad-r2.apk
 
-      - name: Publish v1.4.0-controls
+      - name: Publish v1.4.0-controls-r2
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create v1.4.0-controls \
-            GeneralsXZH-v1.4.0-Touch-Gamepad.apk \
+          gh release create v1.4.0-controls-r2 \
+            GeneralsXZH-v1.4.0-Touch-Gamepad-r2.apk \
             --repo "${{ github.repository }}" \
             --target d55972891793ca17ef9ab1b39216359a5ae44277 \
             --title "Generals Zero Hour Android v1.4.0 + Touch & Gamepad Controls" \
@@ -56,5 +56,5 @@ jobs:
           The MYSOREZ v1.4.0 renderer, Snapdragon GSR, interface scaling, online/LAN fixes and current camera fixes are preserved.
 
           Built and verified by GitHub Actions run #11.
-          SHA-256: 4a7f0f201881d3465e6573f6a96791267a08cacf8c41a0982ce4cd62107df42a
+          SHA-256: e38e9024e499be5643bfe63cd45ab800f971a05a3f8f9008ee2212b0a64f6428
           EOF
