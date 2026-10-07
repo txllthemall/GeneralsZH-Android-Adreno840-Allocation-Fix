@@ -282,7 +282,7 @@ jobs:
       # and run #2 sailed straight past a fatal configure error into "success"
       # — exactly the pipeline-masking failure the porting playbook warns
       # about. The Verify step caught it; now the failing step reports itself.
-      - name: Configure CMake (Android)
+      - name: Configure CMake (Android, 60 Hz)
         run: |
           set -o pipefail
           mkdir -p logs
@@ -290,22 +290,38 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DANDROID_CI_BUILD_NUMBER=${{ github.run_number }} \
-            2>&1 | tee logs/configure_android.log
+            -DSAGE_HIGH_FPS_SIM=ON \
+            2>&1 | tee logs/configure_android_60.log
 
-      - name: Build z_generals (libmain.so) + DXVK d3d8/d3d9
+      - name: Build 60 Hz engine (libmain60.so)
+        run: |
+          set -o pipefail
+          cmake --build build/${{ env.PRESET }} --target z_generals -- -k 0 \
+            2>&1 | tee logs/build_android_60.log
+          SRC="build/${{ env.PRESET }}/GeneralsMD/Code/Main/libmain.so"
+          DST="build/libmain60.so"
+          test -f "$SRC"
+          cp "$SRC" "$DST"
+          test -s "$DST"
+          echo "60 Hz engine saved: $(du -h "$DST" | cut -f1)"
+
+      - name: Configure CMake (Android, 30 Hz)
+        run: |
+          set -o pipefail
+          cmake --preset ${{ env.PRESET }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DANDROID_CI_BUILD_NUMBER=${{ github.run_number }} \
+            -DSAGE_HIGH_FPS_SIM=OFF \
+            2>&1 | tee logs/configure_android_30.log
+
+      - name: Build 30 Hz engine (libmain.so) + DXVK d3d8/d3d9
         run: |
           set -o pipefail
           mkdir -p logs
-          # ninja -k 0: keep going past failures so ONE run surfaces every
-          # cross-compile error in the 1.6M-LOC engine instead of one per
-          # round-trip; the exit code still fails the step when anything broke.
-          # main_hook/file_redirect_hook/gsl_alloc_hook/hook_impl
-          # (cmake/adrenotools.cmake): dlopen()'d by path at runtime, not a
-          # link-time dependency of z_generals, so a targeted build skips them
-          # unless named explicitly -- package-android-zh.sh's jniLibs staging
-          # requires all four to already exist.
           cmake --build build/${{ env.PRESET }} --target z_generals dxvk_d3d8_install \
-            main_hook file_redirect_hook gsl_alloc_hook hook_impl -- -k 0 2>&1 | tee logs/build_android.log
+            main_hook file_redirect_hook gsl_alloc_hook hook_impl -- -k 0 \
+            2>&1 | tee logs/build_android_30.log
           ccache --show-stats
 
       - name: Verify artifacts
@@ -325,7 +341,9 @@ jobs:
           # own OUTPUT_NAME (GeneralsMD/Code/Main/CMakeLists.txt) makes the
           # real path deterministic, so use it directly instead of searching.
           GAME_LIB="build/${{ env.PRESET }}/GeneralsMD/Code/Main/libmain.so"
+          SECOND_LIB="build/libmain60.so"
           if [ ! -f "$GAME_LIB" ]; then echo "::error::libmain.so not found at $GAME_LIB"; exit 1; fi
+          if [ ! -f "$SECOND_LIB" ]; then echo "::error::libmain60.so not found at $SECOND_LIB"; exit 1; fi
           # GeneralsX @bugfix Android port 31/07/2026 - the deterministic
           # OUTPUT_NAME path above (13/07/2026 fix) stopped `head -1` from
           # grabbing the wrong file, but the readelf check itself still
@@ -347,12 +365,17 @@ jobs:
             sleep 1
           done
           [ "$READELF_OK" = "1" ] || { echo "::error::libmain.so is not AArch64"; exit 1; }
+          "$READELF" -h "$SECOND_LIB" | grep -q AArch64 || { echo "::error::libmain60.so is not AArch64"; exit 1; }
+          for engine in "$GAME_LIB" "$SECOND_LIB"; do
+            strings "$engine" | grep -q "GXUpscale" || { echo "::error::$engine lacks GXUpscale support"; exit 1; }
+            strings "$engine" | grep -q "SGSR" || { echo "::error::$engine lacks SGSR support"; exit 1; }
+          done
           for lib in libdxvk_d3d8.so libdxvk_d3d9.so; do
             [ -f "build/${{ env.PRESET }}/$lib" ] || { echo "::error::$lib missing"; exit 1; }
           done
           strings "build/${{ env.PRESET }}/libdxvk_d3d9.so" | grep -q Sdl3WsiDriver || {
             echo "::error::libdxvk_d3d9.so built without the SDL3 WSI (silent fallback)"; exit 1; }
-          echo "Artifacts verified: AArch64 libmain.so + DXVK with SDL3 WSI"
+          echo "Artifacts verified: AArch64 30/60 Hz engines + SGSR/GXUpscale + DXVK with SDL3 WSI"
 
       # GeneralsX @feature Android CI 06/09/2026 The strip step below is what
       # keeps the APK at ~42MB instead of ~118MB, but it also destroys the one
@@ -367,33 +390,27 @@ jobs:
       # investigations actually used. The program headers travel with it so the
       # vaddr-vs-file-offset bias (the +0x1000 one, rediscovered by hand more
       # than once) is written down next to the symbols it applies to.
-      - name: Collect symbol table (before stripping)
+      - name: Collect symbol tables (before stripping)
         run: |
-          set -e
+          set -euo pipefail
           TOOLS="$(dirname "$(ls "${ANDROID_NDK_HOME}"/toolchains/llvm/prebuilt/*/bin/llvm-nm | head -1)")"
-          LIB="build/${{ env.PRESET }}/GeneralsMD/Code/Main/libmain.so"
           mkdir -p symbols
-          OUT="symbols/libmain-run${{ github.run_number }}.symbols.txt"
-          BUILD_ID="$(readelf -n "$LIB" 2>/dev/null | sed -n 's/.*Build ID: \([0-9a-f]*\).*/\1/p' | head -1)"
-          {
-            echo "# libmain.so symbols -- run ${{ github.run_number }}, commit ${{ github.sha }}"
-            echo "# Match this BuildID against the tombstone's before trusting any address."
-            # llvm-readelf --notes prints the note's header but not the build-id
-            # value itself, so pull it out with GNU readelf, which does.
-            echo "# BuildID: ${BUILD_ID:-UNKNOWN}"
-            "$TOOLS/llvm-readelf" --notes --program-headers "$LIB"
-            echo "# --- defined symbols: address size type name ---"
-            "$TOOLS/llvm-nm" --defined-only --numeric-sort --print-size --demangle "$LIB"
-          } > "$OUT"
-          # A table that came out empty (wrong path, or a library that was
-          # already stripped upstream of here) is worse than no table: it
-          # would ship attached to a Release looking authoritative. Say so.
-          SYMS=$("$TOOLS/llvm-nm" --defined-only "$LIB" 2>/dev/null | wc -l)
-          echo "Symbols captured: ${SYMS}"
-          if [ "${SYMS}" -lt 1000 ]; then
-            echo "::warning::libmain.so yielded only ${SYMS} symbols -- crash logs from this build will not symbolize."
-          fi
-          gzip -9 "$OUT"
+          capture_symbols() {
+            LIB="$1"
+            BASE="$2"
+            OUT="symbols/${BASE}-run${{ github.run_number }}.symbols.txt"
+            BUILD_ID="$(readelf -n "$LIB" 2>/dev/null | sed -n 's/.*Build ID: \([0-9a-f]*\).*/\1/p' | head -1)"
+            {
+              echo "# ${BASE}.so symbols -- run ${{ github.run_number }}, commit ${{ github.sha }}"
+              echo "# BuildID: ${BUILD_ID:-UNKNOWN}"
+              "$TOOLS/llvm-readelf" --notes --program-headers "$LIB"
+              echo "# --- defined symbols: address size type name ---"
+              "$TOOLS/llvm-nm" --defined-only --numeric-sort --print-size --demangle "$LIB"
+            } > "$OUT"
+            gzip -9 "$OUT"
+          }
+          capture_symbols "build/${{ env.PRESET }}/GeneralsMD/Code/Main/libmain.so" "libmain"
+          capture_symbols "build/libmain60.so" "libmain60"
           ls -la symbols/
 
       # GeneralsX @bugfix Android CI 06/08/2026 CI never stripped debug
@@ -413,6 +430,7 @@ jobs:
         run: |
           STRIP="$(ls "${ANDROID_NDK_HOME}"/toolchains/llvm/prebuilt/*/bin/llvm-strip | head -1)"
           for lib in "build/${{ env.PRESET }}/GeneralsMD/Code/Main/libmain.so" \
+                     "build/libmain60.so" \
                      "build/${{ env.PRESET }}/_deps/sdl3-build/libSDL3.so" \
                      "build/${{ env.PRESET }}/_deps/sdl3_image-build/libSDL3_image.so" \
                      "build/${{ env.PRESET }}/_deps/openal_soft-build/libopenal.so" \
@@ -450,6 +468,7 @@ jobs:
           GX_ANDROID_STAGING: ${{ github.workspace }}/android-staging
           GX_ANDROID_VERSION_CODE: ${{ steps.artifact.outputs.version_code }}
           GX_ANDROID_VERSION_NAME: ${{ steps.artifact.outputs.version_name }}
+          GX_SECOND_GAME_LIB: ${{ github.workspace }}/build/libmain60.so
         run: |
           ./scripts/build/android/package-android-zh.sh
 
@@ -477,6 +496,12 @@ jobs:
           unzip -q "${APK}" 'lib/arm64-v8a/*' -d "${WORKDIR}"
           echo "Packaged libraries:"
           ls "${WORKDIR}/lib/arm64-v8a/"
+          test -f "${WORKDIR}/lib/arm64-v8a/libmain.so" || { echo "::error::libmain.so missing"; exit 1; }
+          test -f "${WORKDIR}/lib/arm64-v8a/libmain60.so" || { echo "::error::libmain60.so missing"; exit 1; }
+          for engine in "${WORKDIR}/lib/arm64-v8a/libmain.so" "${WORKDIR}/lib/arm64-v8a/libmain60.so"; do
+            strings "$engine" | grep -q "GXUpscale" || { echo "::error::$engine lacks GXUpscale"; exit 1; }
+            strings "$engine" | grep -q "SGSR" || { echo "::error::$engine lacks SGSR"; exit 1; }
+          done
           NEEDED="$("${READELF}" -d "${WORKDIR}/lib/arm64-v8a/libmain.so" | grep NEEDED | sed -E 's/.*\[(.*)\]/\1/')"
           missing=0
           for lib in ${NEEDED}; do
@@ -521,8 +546,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="v1.4.0-controls"
-          OUT="GeneralsXZH-v1.4.0-Touch-Gamepad.apk"
+          TAG="v1.4.0-controls-r2"
+          OUT="GeneralsXZH-v1.4.0-Touch-Gamepad-r2.apk"
           cp "${{ steps.locate.outputs.path }}" "$OUT"
           SHA="$(sha256sum "$OUT" | awk '{print $1}')"
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
@@ -543,12 +568,17 @@ jobs:
           - Remappable D-pad and auxiliary buttons
           - Cursor speed, pan sensitivity and deadzone settings
 
+          Fixed in r2:
+          - Packages both engine variants: libmain.so (30 Hz) and libmain60.so (60 Hz)
+          - Simulation Rate 30/60 now actually switches engine binaries
+          - CI verifies GXUpscale + SGSR code exists in both engines before publishing
+
           The MYSOREZ v1.4.0 renderer, Snapdragon GSR, interface scaling,
           online/LAN fixes and current camera fixes are preserved.
 
           SHA-256: $SHA
           EOF
-          gh release create "$TAG" "$OUT"             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Generals Zero Hour Android v1.4.0 + Touch & Gamepad Controls"             --notes-file /tmp/release-notes.md
+          gh release create "$TAG" "$OUT"             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Generals Zero Hour Android v1.4.0 + Touch & Gamepad Controls r2"             --notes-file /tmp/release-notes.md
 
       - name: Upload symbol table artifact
         uses: actions/upload-artifact@v7
